@@ -51,6 +51,7 @@ export interface Booking {
   cancellation_deadline: string | null
   // event fields
   location: string | null
+  maps_url: string | null // optional override for the auto-generated Google Maps link
   start_at: string | null
   end_at: string | null
   cost: number | null

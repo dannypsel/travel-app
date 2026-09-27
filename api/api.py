@@ -161,7 +161,7 @@ BOOKING_FIELDS = {
     "change_cancel_deadline", "cents_per_point",
     "hotel_name", "address", "check_in", "check_out",
     "room_type", "free_night_certs", "resort_fees", "cancellation_deadline",
-    "location", "start_at", "end_at", "cost", "notes",
+    "location", "maps_url", "start_at", "end_at", "cost", "notes",
 }
 
 

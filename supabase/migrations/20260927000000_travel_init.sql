@@ -57,6 +57,7 @@ create table travel_bookings (
   cancellation_deadline date,
   -- event fields
   location text,
+  maps_url text, -- optional override for the auto-generated Google Maps link
   start_at timestamptz,
   end_at timestamptz,
   cost numeric,

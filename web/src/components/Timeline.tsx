@@ -6,6 +6,8 @@ import type { Booking, Trip } from '@/types'
 import { CATEGORY_EMOJI } from '@/types'
 import { tripTimeline } from '@/lib/dayItems'
 import { DualTime } from './DualTime'
+import { DirectionsLink } from './DirectionsLink'
+import { directionsUrl } from '@/lib/maps'
 import { formatLongDate, weekday } from '@/lib/tz'
 
 interface Props {
@@ -95,6 +97,18 @@ export function Timeline({ trips, bookings, selectedTripId, onSelectTrip }: Prop
                             <p className="text-xs text-slate-500">
                               {it.booking.airline} {it.booking.flight_number} ·{' '}
                               {it.booking.origin} → {it.booking.destination}
+                            </p>
+                          )}
+                          {it.booking.kind === 'event' &&
+                            (it.booking.location || directionsUrl(it.booking)) && (
+                              <p className="text-xs text-slate-500">
+                                {it.booking.location}{' '}
+                                <DirectionsLink booking={it.booking} />
+                              </p>
+                            )}
+                          {it.booking.kind === 'hotel' && directionsUrl(it.booking) && (
+                            <p className="text-xs text-slate-500">
+                              <DirectionsLink booking={it.booking} />
                             </p>
                           )}
                         </div>

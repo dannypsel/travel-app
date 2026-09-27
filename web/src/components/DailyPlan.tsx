@@ -7,6 +7,7 @@ import type { Booking, Trip } from '@/types'
 import { CATEGORY_EMOJI } from '@/types'
 import { tripTimeline } from '@/lib/dayItems'
 import { DualTime } from './DualTime'
+import { DirectionsLink } from './DirectionsLink'
 import {
   addDays,
   formatLongDate,
@@ -137,18 +138,21 @@ export function DailyPlan({
                       <p className="mt-0.5 text-xs text-slate-500">
                         {it.booking.airline} {it.booking.flight_number} ·{' '}
                         {it.booking.origin} → {it.booking.destination}
-                        {it.booking.seat ? ` · Seat ${it.booking.seat}` : ''}
+                        {it.booking.seat ? ` · Seat ${it.booking.seat}` : ''}{' '}
+                        <DirectionsLink booking={it.booking} />
                       </p>
                     )}
                     {it.booking.kind === 'hotel' && it.booking.hotel_name && (
                       <p className="mt-0.5 text-xs text-slate-500">
                         {it.booking.check_in} → {it.booking.check_out}
-                        {it.booking.room_type ? ` · ${it.booking.room_type}` : ''}
+                        {it.booking.room_type ? ` · ${it.booking.room_type}` : ''}{' '}
+                        <DirectionsLink booking={it.booking} />
                       </p>
                     )}
                     {it.booking.kind === 'event' && it.booking.location && (
                       <p className="mt-0.5 text-xs text-slate-500">
-                        {it.booking.location}
+                        {it.booking.location}{' '}
+                        <DirectionsLink booking={it.booking} />
                       </p>
                     )}
                     {it.booking.notes && (

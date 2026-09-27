@@ -7,6 +7,7 @@ import { Plus, Trash2, X } from 'lucide-react'
 import type { Booking, BookingKind, Category, Trip } from '@/types'
 import { CATEGORY_EMOJI } from '@/types'
 import { DualTime } from './DualTime'
+import { DirectionsLink } from './DirectionsLink'
 import { formatShortDate } from '@/lib/tz'
 
 interface Props {
@@ -84,6 +85,7 @@ function FlightCard({ b, trip }: { b: Booking; trip: Trip }) {
       />
       <Field label="Airline" value={b.airline} />
       <Field label="Flight" value={b.flight_number} />
+      <Field label="Directions" value={<DirectionsLink booking={b} />} />
       <Field label="Confirmation" value={b.confirmation_number} />
       <Field label="Ticket" value={b.ticket_number} />
       <Field label="Seat" value={b.seat} />
@@ -110,7 +112,19 @@ function HotelCard({ b }: { b: Booking }) {
   return (
     <div className="space-y-1">
       <Field label="Hotel" value={b.hotel_name} />
-      <Field label="Address" value={b.address} />
+      <Field
+        label="Address"
+        value={
+          b.address ? (
+            <>
+              {b.address} <DirectionsLink booking={b} />
+            </>
+          ) : (
+            <DirectionsLink booking={b} />
+          )
+        }
+      />
+      <Field label="Maps link" value={b.maps_url} />
       <Field
         label="Stay"
         value={
@@ -140,7 +154,19 @@ function EventCard({ b, trip }: { b: Booking; trip: Trip }) {
         label="When"
         value={b.start_at ? <DualTime iso={b.start_at} trip={trip} /> : null}
       />
-      <Field label="Location" value={b.location} />
+      <Field
+        label="Location"
+        value={
+          b.location ? (
+            <>
+              {b.location} <DirectionsLink booking={b} />
+            </>
+          ) : (
+            <DirectionsLink booking={b} />
+          )
+        }
+      />
+      <Field label="Maps link" value={b.maps_url} />
       <Field label="Cost" value={fmtMoney(b.cost, 'USD')} />
       <Field label="Notes" value={b.notes} />
     </div>
@@ -211,6 +237,7 @@ function FlightForm({ onSubmit, onClose }: { onSubmit: (b: Partial<Booking>) => 
       checked_bags: num(f.checked_bags),
       change_cancel_deadline: f.change_cancel_deadline || null,
       cents_per_point: num(f.cents_per_point),
+      maps_url: f.maps_url || null,
       notes: f.notes || null,
     })
     onClose()
@@ -218,6 +245,7 @@ function FlightForm({ onSubmit, onClose }: { onSubmit: (b: Partial<Booking>) => 
   return (
     <form onSubmit={submit} className="space-y-3">
       <Input label="Title" value={f.title ?? ''} onChange={set('title')} placeholder="DL 45 · LAX → HND" />
+      <Input label="Google Maps link (optional override)" value={f.maps_url ?? ''} onChange={set('maps_url')} placeholder="https://maps.google.com/…" />
       <div className="grid grid-cols-2 gap-3">
         <Input label="Airline" value={f.airline ?? ''} onChange={set('airline')} />
         <Input label="Flight number" value={f.flight_number ?? ''} onChange={set('flight_number')} required />
@@ -276,6 +304,7 @@ function HotelForm({ onSubmit, onClose }: { onSubmit: (b: Partial<Booking>) => P
       confirmation_number: f.confirmation_number || null,
       booking_account: f.booking_account || null,
       cancellation_deadline: f.cancellation_deadline || null,
+      maps_url: f.maps_url || null,
       notes: f.notes || null,
     })
     onClose()
@@ -284,6 +313,7 @@ function HotelForm({ onSubmit, onClose }: { onSubmit: (b: Partial<Booking>) => P
     <form onSubmit={submit} className="space-y-3">
       <Input label="Hotel name" value={f.hotel_name ?? ''} onChange={set('hotel_name')} required />
       <Input label="Address" value={f.address ?? ''} onChange={set('address')} />
+      <Input label="Google Maps link (optional override)" value={f.maps_url ?? ''} onChange={set('maps_url')} placeholder="https://maps.google.com/…" />
       <div className="grid grid-cols-2 gap-3">
         <Input label="Check-in" type="date" value={f.check_in ?? ''} onChange={set('check_in')} required />
         <Input label="Check-out" type="date" value={f.check_out ?? ''} onChange={set('check_out')} required />
@@ -314,6 +344,7 @@ function EventForm({ onSubmit, onClose }: { onSubmit: (b: Partial<Booking>) => P
       category: (f.category as Category) ?? 'other',
       title: f.title || 'Event',
       location: f.location || null,
+      maps_url: f.maps_url || null,
       start_at: localToIso(f.start_at ?? ''),
       end_at: localToIso(f.end_at ?? ''),
       cost: num(f.cost),
@@ -324,6 +355,7 @@ function EventForm({ onSubmit, onClose }: { onSubmit: (b: Partial<Booking>) => P
   return (
     <form onSubmit={submit} className="space-y-3">
       <Input label="Title" value={f.title ?? ''} onChange={set('title')} required />
+      <Input label="Google Maps link (optional override)" value={f.maps_url ?? ''} onChange={set('maps_url')} placeholder="https://maps.google.com/…" />
       <Select label="Category" value={f.category ?? 'fun'} onChange={set('category')}>
         <option value="food">🍽️ food</option>
         <option value="fun">🎉 fun</option>
@@ -364,6 +396,13 @@ export function Bookings({
   const grouped = useMemo(() => {
     const g: Record<BookingKind, Booking[]> = { flight: [], hotel: [], event: [] }
     for (const b of bookings) g[b.kind].push(b)
+    // New entries slot into time order automatically.
+    const byTime = (k: BookingKind) => (a: Booking, b: Booking) => {
+      const ka = k === 'flight' ? a.depart_at : k === 'hotel' ? a.check_in : a.start_at
+      const kb = k === 'flight' ? b.depart_at : k === 'hotel' ? b.check_in : b.start_at
+      return (ka ?? '~~~') < (kb ?? '~~~') ? -1 : 1
+    }
+    ;(Object.keys(g) as BookingKind[]).forEach((k) => g[k].sort(byTime(k)))
     return g
   }, [bookings])
 
