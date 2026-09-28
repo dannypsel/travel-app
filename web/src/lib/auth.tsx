@@ -26,6 +26,7 @@ interface AuthState {
   token: string | null
   ready: boolean
   signIn: (email: string, password: string) => Promise<string | null>
+  signUp: (email: string, password: string) => Promise<string | null>
   signOut: () => Promise<void>
 }
 
@@ -56,6 +57,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return error ? error.message : null
   }, [])
 
+  const signUp = useCallback(async (email: string, password: string) => {
+    if (!supabase) return 'Supabase is not configured (missing VITE_SUPABASE_URL / VITE_SUPABASE_PUBLISHABLE_KEY).'
+    const { error } = await supabase.auth.signUp({ email, password })
+    return error ? error.message : null
+  }, [])
+
   const signOut = useCallback(async () => {
     if (supabase) await supabase.auth.signOut()
   }, [])
@@ -66,9 +73,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       token: session?.access_token ?? null,
       ready,
       signIn,
+      signUp,
       signOut,
     }),
-    [session, ready, signIn, signOut],
+    [session, ready, signIn, signUp, signOut],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
