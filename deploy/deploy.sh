@@ -3,7 +3,7 @@
 # Deploy the travel app:
 #   1. Build the FastAPI backend as a container image (linux/arm64) and push to ECR
 #   2. Point the Lambda function at the new image
-#   3. Build the web frontend with the Lambda Function URL baked in
+#   3. Build the web frontend with the backend URL baked in
 #   4. Sync the static build to S3 and invalidate CloudFront
 #
 # Usage:
@@ -14,7 +14,7 @@
 # Optional overrides: AWS_REGION (default us-east-1), ECR_REPO (default travel-api),
 # LAMBDA_FUNCTION (default travel-api).
 #
-# One-time AWS setup (ECR repo, Lambda function, Function URL, S3 bucket,
+# One-time AWS setup (ECR repo, Lambda function, API Gateway HTTP API, S3 bucket,
 # CloudFront distribution, IAM permissions) is documented in deploy/SETUP.md.
 
 set -euo pipefail
@@ -82,11 +82,20 @@ aws lambda update-function-code --region "$AWS_REGION" \
 step "3/7 — waiting for the function update to finish"
 aws lambda wait function-updated --region "$AWS_REGION" --function-name "$LAMBDA_FUNCTION"
 
-step "4/7 — reading the Function URL"
+step "4/7 — reading the backend URL"
+# Preferred: Lambda Function URL. Fallback: API Gateway HTTP API in front of
+# the function (Function URLs return 403 in this AWS account as of 2026-09-27;
+# see SETUP.md step 4). The API id is discovered by the "travel-api" name tag.
 FUNC_URL="$(aws lambda get-function-url-config --region "$AWS_REGION" \
-  --function-name "$LAMBDA_FUNCTION" --query FunctionUrl --output text)" \
-  || fail "No Function URL on '$LAMBDA_FUNCTION'. Do SETUP.md step 4 first."
-echo "Function URL: $FUNC_URL"
+  --function-name "$LAMBDA_FUNCTION" --query FunctionUrl --output text 2>/dev/null)" || true
+if [ -z "$FUNC_URL" ] || [ "$FUNC_URL" = "None" ]; then
+  API_ID="$(aws apigatewayv2 get-apis --region "$AWS_REGION" \
+    --query "Items[?Name=='travel-api'].ApiId" --output text 2>/dev/null)"
+  [ -n "$API_ID" ] && [ "$API_ID" != "None" ] \
+    || fail "No Function URL and no 'travel-api' API Gateway found. Do SETUP.md step 4 first."
+  FUNC_URL="https://${API_ID}.execute-api.${AWS_REGION}.amazonaws.com"
+fi
+echo "Backend URL: $FUNC_URL"
 
 step "5/7 — building the web frontend"
 [ -d "$WEB_DIR/node_modules" ] || fail "$WEB_DIR/node_modules is missing — run 'npm install' inside web/ once first."
