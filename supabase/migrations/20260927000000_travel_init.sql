@@ -132,3 +132,11 @@ create policy "authenticated_all" on travel_budgets for all
   to authenticated using (true) with check (true);
 create policy "authenticated_all" on travel_import_queue for all
   to authenticated using (true) with check (true);
+
+-- Table privileges: raw SQL gets no automatic dashboard grants, so grant
+-- explicitly. Backend uses the secret key (service_role, bypasses RLS);
+-- RLS policies above remain permissive for authenticated users (v1).
+grant all on travel_trips, travel_bookings, travel_expenses, travel_budgets,
+  travel_import_queue to service_role;
+grant all on travel_trips, travel_bookings, travel_expenses, travel_budgets,
+  travel_import_queue to authenticated;
