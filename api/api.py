@@ -23,7 +23,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("travel-service")
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+SUPABASE_SECRET_KEY = os.environ.get("SUPABASE_SECRET_KEY")
 
 app = FastAPI(title="travel-service")
 
@@ -44,16 +44,16 @@ _client: Client | None = None
 
 
 def get_supabase() -> Client:
-    """Service-role Supabase client. Lazily built so module import works
+    """Supabase client (secret key). Lazily built so module import works
     without env vars set (tests, Docker build)."""
     global _client
     if _client is None:
-        if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+        if not SUPABASE_URL or not SUPABASE_SECRET_KEY:
             raise HTTPException(
                 status_code=500,
-                detail="server misconfigured: SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set",
+                detail="server misconfigured: SUPABASE_URL / SUPABASE_SECRET_KEY not set",
             )
-        _client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        _client = create_client(SUPABASE_URL, SUPABASE_SECRET_KEY)
     return _client
 
 

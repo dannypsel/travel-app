@@ -60,7 +60,7 @@ web (React SPA, S3 + CloudFront)
   │  Authorization: Bearer <Supabase JWT> on every data call
   ▼
 api (FastAPI + Mangum, Lambda container image, arm64)
-  │  SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY — service-role bypasses RLS
+  │  SUPABASE_URL / SUPABASE_SECRET_KEY — secret key bypasses RLS
   ▼
 Supabase (shared project with the budget app; tables prefixed travel_)
 ```
@@ -101,7 +101,7 @@ Every deploy after that:
 ```bash
 S3_BUCKET=<bucket> CLOUDFRONT_DIST_ID=<dist-id> \
 VITE_SUPABASE_URL=https://<ref>.supabase.co \
-VITE_SUPABASE_ANON_KEY=<anon-key> \
+VITE_SUPABASE_PUBLISHABLE_KEY=<your-publishable-key> \
 ./deploy/deploy.sh
 ```
 

@@ -2,5 +2,5 @@ fastapi>=0.110.0
 # uvicorn is LOCAL DEV ONLY (scripts/local-dev.sh runs `uvicorn api:app`); Lambda never uses it.
 uvicorn>=0.27.0
 mangum>=0.17.0   # FastAPI → AWS Lambda adapter (Function URL container image)
-supabase>=2.0.0  # supabase-py: DB + auth.get_user() JWT verification
+supabase>=2.16.0  # supabase-py: DB + auth.get_user() JWT verification (2.16+ supports the new sb_secret_/sb_publishable_ key format)
 python-dotenv>=1.0.0  # loads api/.env for local dev

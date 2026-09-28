@@ -23,4 +23,4 @@ npm install
 npm run dev
 ```
 
-Needs `.env` (copy `.env.example`) with `VITE_BACKEND_URL`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, and the backend running on port 8001 (see `scripts/local-dev.sh`).
+Needs `.env` (copy `.env.example`) with `VITE_BACKEND_URL`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, and the backend running on port 8001 (see `scripts/local-dev.sh`).

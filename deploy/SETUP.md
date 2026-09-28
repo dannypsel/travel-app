@@ -6,7 +6,7 @@ After setup, every deploy is just:
 ```bash
 S3_BUCKET=<your bucket> CLOUDFRONT_DIST_ID=<your distribution id> \
 VITE_SUPABASE_URL=https://<your-project>.supabase.co \
-VITE_SUPABASE_ANON_KEY=<your anon key> \
+VITE_SUPABASE_PUBLISHABLE_KEY=<your-publishable-key> \
 ./deploy/deploy.sh
 ```
 
@@ -76,7 +76,7 @@ Edit**. Add each of these.
 | Variable | Value / how to get it |
 |---|---|
 | `SUPABASE_URL` | Supabase dashboard → Project Settings → API → Project URL (e.g. `https://xyz.supabase.co`) |
-| `SUPABASE_SERVICE_ROLE_KEY` | Same page → `service_role` key (the **secret** one — never put this in the frontend) |
+| `SUPABASE_SECRET_KEY` | Same page → **secret** key (`sb_secret_...` — never put this in the frontend) |
 | `WEB_ORIGINS` | Comma-separated list of origins allowed to call the API from a browser. **Must include your CloudFront origin** (e.g. `https://d1234abcdef.cloudfront.net`) — that's where the web app lives. Add `http://localhost:5174` too if you want local `vite dev` to keep working. |
 
 There is no Plaid section, no scheduler secret, and no email-digest SMTP in
@@ -227,10 +227,10 @@ The deploy script needs AWS permissions. Create a **dedicated IAM user**
    budget app) → **Project Settings → API**:
    - **Project URL** → `SUPABASE_URL` (Lambda env, step 3) and
      `VITE_SUPABASE_URL` (deploy-time env for `deploy.sh`).
-   - **anon public key** → `VITE_SUPABASE_ANON_KEY` (deploy-time env). Safe
+   - **publishable key** (`sb_publishable_...`) → `VITE_SUPABASE_PUBLISHABLE_KEY` (deploy-time env). Safe
      for the browser — it's gated by Row Level Security and the frontend
      only uses it to sign in and get a JWT.
-   - **service_role secret key** → `SUPABASE_SERVICE_ROLE_KEY` (Lambda env
+   - **secret key** (`sb_secret_...`) → `SUPABASE_SECRET_KEY` (Lambda env
      only — full database access, never in the frontend).
 2. **Migrations** — the travel app's migrations live in `supabase/` at the
    **repo root**, and every table is prefixed `travel_` so it shares the
@@ -250,7 +250,7 @@ The deploy script needs AWS permissions. Create a **dedicated IAM user**
 S3_BUCKET=<bucket from step 5> \
 CLOUDFRONT_DIST_ID=<id from step 6> \
 VITE_SUPABASE_URL=https://<ref>.supabase.co \
-VITE_SUPABASE_ANON_KEY=<anon key> \
+VITE_SUPABASE_PUBLISHABLE_KEY=<your-publishable-key> \
 ./deploy/deploy.sh
 ```
 

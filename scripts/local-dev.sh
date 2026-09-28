@@ -8,7 +8,7 @@
 #   2. From the repo root: supabase link --project-ref <dev-project-ref> \
 #        && supabase db push      (migrations live in supabase/ at repo root)
 #   3. Copy api/.env.example to api/.env (not committed) and fill in:
-#      SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY
+#      SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, SUPABASE_SECRET_KEY
 #      (from the dev project's API settings).
 #   4. ./scripts/local-dev.sh
 set -euo pipefail
@@ -26,10 +26,10 @@ fi
 
 [ -n "${SUPABASE_URL:-}" ] \
   || die "SUPABASE_URL is not set. Create a dev Supabase project, run the migrations (see header), and put the API keys in api/.env"
-[ -n "${SUPABASE_ANON_KEY:-}" ] \
-  || die "SUPABASE_ANON_KEY is not set (Supabase dashboard → Project Settings → API)."
-[ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ] \
-  || die "SUPABASE_SERVICE_ROLE_KEY is not set (Supabase dashboard → Project Settings → API)."
+[ -n "${SUPABASE_PUBLISHABLE_KEY:-}" ] \
+  || die "SUPABASE_PUBLISHABLE_KEY is not set (Supabase dashboard → Project Settings → API)."
+[ -n "${SUPABASE_SECRET_KEY:-}" ] \
+  || die "SUPABASE_SECRET_KEY is not set (Supabase dashboard → Project Settings → API)."
 case "$SUPABASE_URL" in
   *localhost*|*127.0.0.1*)
     die "SUPABASE_URL points at localhost. Point it at your Supabase Cloud dev project." ;;
@@ -47,13 +47,13 @@ trap cleanup EXIT INT TERM
 echo "▸ travel-service on :8001…"
 (cd api && \
   SUPABASE_URL="$SUPABASE_URL" \
-  SUPABASE_SERVICE_ROLE_KEY="$SUPABASE_SERVICE_ROLE_KEY" \
+  SUPABASE_SECRET_KEY="$SUPABASE_SECRET_KEY" \
   uvicorn api:app --host 0.0.0.0 --port 8001) &
 
 echo "▸ web on :5174…"
 (cd web && \
   VITE_SUPABASE_URL="$SUPABASE_URL" \
-  VITE_SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
+  VITE_SUPABASE_PUBLISHABLE_KEY="$SUPABASE_PUBLISHABLE_KEY" \
   VITE_BACKEND_URL=http://localhost:8001 \
   npm run dev -- --port 5174) &
 
