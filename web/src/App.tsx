@@ -61,9 +61,11 @@ function Shell() {
       .then((t) => {
         if (cancelled) return
         if (t.length === 0) {
-          setSeedMode(true)
-          setTrips([SEED_TRIP])
-          setSelectedTripId(SEED_TRIP.id)
+          // Backend is fine, the account just has no trips yet: show an
+          // empty state with a working "+ Trip" button (not seed data).
+          setSeedMode(false)
+          setTrips([])
+          setSelectedTripId(null)
         } else {
           setSeedMode(false)
           setTrips(t)
@@ -245,6 +247,12 @@ function Shell() {
               selectedTripId={selectedTripId}
               onSelectTrip={setSelectedTripId}
             />
+            {!seedMode && trips.length === 0 && (
+              <p className="mt-4 rounded-lg bg-white p-4 text-center text-sm text-slate-500 shadow-sm">
+                No trips yet. Tap <span className="font-medium text-slate-700">+ Trip</span> above
+                to add your first one.
+              </p>
+            )}
           </div>
         )}
         {tab === 'timeline' && (
