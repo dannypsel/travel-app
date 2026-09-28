@@ -85,6 +85,15 @@ via `POST /refresh`.
 
 ## 4. Create the Function URL (Auth type NONE)
 
+> **Account note (2026-09-27):** Lambda Function URLs are currently broken in
+> this AWS account — every invocation returns `403 AccessDeniedException`
+> even with the correct `lambda:InvokeFunctionUrl` resource policy (verified
+> in `us-east-1` and `us-west-2` with trivial test functions). The backend is
+> therefore exposed through an **API Gateway HTTP API** instead (API id
+> `sxj1rkmxzl`, `$default` stage → `https://sxj1rkmxzl.execute-api.us-east-1.amazonaws.com`).
+> `VITE_BACKEND_URL` points at the API Gateway URL. If Function URLs start
+> working again, the steps below still apply.
+
 The Function URL is the public HTTPS address of the backend. The frontend is
 built with this URL baked in (`VITE_BACKEND_URL`).
 
