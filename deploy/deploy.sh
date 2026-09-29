@@ -19,6 +19,17 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Load deploy/.env if present so repeated deploys don't need secrets on the
+# command line. The file is git-ignored (see .env.example); never commit it.
+if [ -f "$SCRIPT_DIR/.env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . "$SCRIPT_DIR/.env"
+  set +a
+fi
+
 # ── Parameters ───────────────────────────────────────────────────────────────
 AWS_REGION="${AWS_REGION:-us-east-1}"
 ECR_REPO="${ECR_REPO:-travel-api}"
