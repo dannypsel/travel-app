@@ -21,18 +21,17 @@ import { tripPacingLocal } from '@/lib/pacing'
 import { SEED_BOOKINGS, SEED_BUDGET, SEED_EXPENSES, SEED_TRIP } from '@/seed'
 import { SignIn } from '@/components/SignIn'
 import { Calendar } from '@/components/Calendar'
-import { Timeline } from '@/components/Timeline'
-import { DailyPlan } from '@/components/DailyPlan'
+import { Itinerary } from '@/components/Itinerary'
 import { Bookings } from '@/components/Bookings'
 import { Budget } from '@/components/Budget'
 import { Sharing } from '@/components/Sharing'
+import { PullToRefresh } from '@/components/PullToRefresh'
 
-type Tab = 'calendar' | 'timeline' | 'daily' | 'bookings' | 'budget' | 'sharing'
+type Tab = 'calendar' | 'itinerary' | 'bookings' | 'budget' | 'sharing'
 
 const TABS: { id: Tab; label: string; icon: typeof Plane }[] = [
   { id: 'calendar', label: 'Calendar', icon: CalendarDays },
-  { id: 'timeline', label: 'Timeline', icon: ListOrdered },
-  { id: 'daily', label: 'Daily plan', icon: Plane },
+  { id: 'itinerary', label: 'Itinerary', icon: ListOrdered },
   { id: 'bookings', label: 'Bookings', icon: ReceiptText },
   { id: 'budget', label: 'Budget', icon: Wallet },
   { id: 'sharing', label: 'Sharing', icon: Share2 },
@@ -163,6 +162,12 @@ function Shell() {
     setBookings((p) => [...p, b])
   }
 
+  const updateBooking = async (b: Booking, body: Partial<Booking>) => {
+    if (!token || seedMode) return
+    const updated = await api.updateBooking(token, b.id, body)
+    setBookings((p) => p.map((x) => (x.id === b.id ? updated : x)))
+  }
+
   const deleteBooking = async (b: Booking) => {
     if (!token || seedMode) return
     if (!window.confirm(`Delete "${b.title}"?`)) return
@@ -197,6 +202,25 @@ function Shell() {
     setTrips((p) => p.map((t) => (t.id === updated.id ? updated : t)))
   }
 
+  // Full reload: trip list + current trip data. Used by pull-to-refresh so
+  // shared-trip changes made elsewhere show up on demand.
+  const refreshAll = useCallback(async () => {
+    if (!token) return
+    try {
+      const t = await api.listTrips(token)
+      if (t.length > 0) {
+        setSeedMode(false)
+        setTrips(t)
+        setSelectedTripId((prev) =>
+          prev && t.some((x) => x.id === prev) ? prev : t[0].id,
+        )
+      }
+    } catch {
+      // keep current data; the trip refresh below still runs
+    }
+    await refreshTripData()
+  }, [token, refreshTripData])
+
   if (!ready) {
     return (
       <div className="flex min-h-dvh items-center justify-center text-sm text-slate-500">
@@ -207,6 +231,7 @@ function Shell() {
   if (!session) return <SignIn />
 
   return (
+    <PullToRefresh onRefresh={refreshAll}>
     <div className="flex min-h-dvh flex-col bg-slate-100">
       {/* Header — safe-area padded for the iOS notch when launched from the home screen */}
       <header className="app-safe-top bg-white shadow-sm">
@@ -262,20 +287,14 @@ function Shell() {
             )}
           </div>
         )}
-        {tab === 'timeline' && (
-          <Timeline
+        {tab === 'itinerary' && (
+          <Itinerary
             trips={trips}
             bookings={bookings}
             selectedTripId={selectedTripId}
             onSelectTrip={setSelectedTripId}
-          />
-        )}
-        {tab === 'daily' && (
-          <DailyPlan
-            trips={trips}
-            bookings={bookings}
-            selectedTripId={selectedTripId}
-            onSelectTrip={setSelectedTripId}
+            onAdd={addBooking}
+            seedMode={seedMode}
           />
         )}
         {tab === 'bookings' && (
@@ -285,6 +304,7 @@ function Shell() {
             selectedTripId={selectedTripId}
             onSelectTrip={setSelectedTripId}
             onAdd={addBooking}
+            onUpdate={updateBooking}
             onDelete={deleteBooking}
             seedMode={seedMode}
           />
@@ -319,7 +339,7 @@ function Shell() {
 
       {/* Bottom tab bar — safe-area padded for the home indicator */}
       <nav className="app-safe-bottom fixed inset-x-0 bottom-0 border-t border-slate-200 bg-white">
-        <div className="app-safe-x mx-auto grid max-w-3xl grid-cols-6">
+        <div className="app-safe-x mx-auto grid max-w-3xl grid-cols-5">
           {TABS.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
@@ -339,6 +359,7 @@ function Shell() {
         <AddTripModal onClose={() => setAddingTrip(false)} onSave={addTrip} />
       )}
     </div>
+    </PullToRefresh>
   )
 }
 

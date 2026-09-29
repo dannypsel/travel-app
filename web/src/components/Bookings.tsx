@@ -3,7 +3,7 @@
 // visually deprioritized at the bottom of flight detail/form.
 
 import { useMemo, useState } from 'react'
-import { Plus, Trash2, X } from 'lucide-react'
+import { ChevronDown, Pencil, Plus, Trash2, X } from 'lucide-react'
 import type { Booking, BookingKind, Category, Trip } from '@/types'
 import { CATEGORY_EMOJI } from '@/types'
 import { DualTime } from './DualTime'
@@ -16,6 +16,7 @@ interface Props {
   selectedTripId: string | null
   onSelectTrip: (id: string) => void
   onAdd: (tripId: string, body: Partial<Booking>) => Promise<void>
+  onUpdate: (booking: Booking, body: Partial<Booking>) => Promise<void>
   onDelete: (booking: Booking) => Promise<void>
   seedMode: boolean
 }
@@ -190,8 +191,7 @@ function Input(props: React.InputHTMLAttributes<HTMLInputElement> & { label: str
   )
 }
 
-function Select(
-  props: React.SelectHTMLAttributes<HTMLSelectElement> & { label: string },
+function Select(  props: React.SelectHTMLAttributes<HTMLSelectElement> & { label: string },
 ) {
   const { label, children, ...rest } = props
   return (
@@ -209,8 +209,90 @@ function Select(
 
 type Draft = Record<string, string>
 
-function FlightForm({ onSubmit, onClose }: { onSubmit: (b: Partial<Booking>) => Promise<void>; onClose: () => void }) {
-  const [f, setF] = useState<Draft>({})
+/** Booking -> form draft (ISO datetimes become datetime-local strings). */
+export function bookingToDraft(b: Booking): Draft {
+  const d: Draft = {
+    title: b.title ?? '',
+    notes: b.notes ?? '',
+    maps_url: b.maps_url ?? '',
+  }
+  const s = (v: unknown) => (v == null ? '' : String(v))
+  if (b.kind === 'flight') {
+    d.airline = s(b.airline)
+    d.flight_number = s(b.flight_number)
+    d.origin = s(b.origin)
+    d.destination = s(b.destination)
+    d.depart_at = isoToLocal(b.depart_at)
+    d.arrive_at = isoToLocal(b.arrive_at)
+    d.points_cost = s(b.points_cost)
+    d.point_currency = s(b.point_currency)
+    d.cash_paid = s(b.cash_paid)
+    d.cash_currency = s(b.cash_currency)
+    d.booking_account = s(b.booking_account)
+    d.confirmation_number = s(b.confirmation_number)
+    d.ticket_number = s(b.ticket_number)
+    d.seat = s(b.seat)
+    d.checked_bags = s(b.checked_bags)
+    d.change_cancel_deadline = s(b.change_cancel_deadline)
+    d.cents_per_point = s(b.cents_per_point)
+  } else if (b.kind === 'hotel') {
+    d.hotel_name = s(b.hotel_name)
+    d.address = s(b.address)
+    d.check_in = s(b.check_in)
+    d.check_out = s(b.check_out)
+    d.room_type = s(b.room_type)
+    d.free_night_certs = s(b.free_night_certs)
+    d.resort_fees = s(b.resort_fees)
+    d.confirmation_number = s(b.confirmation_number)
+    d.booking_account = s(b.booking_account)
+    d.cancellation_deadline = s(b.cancellation_deadline)
+  } else {
+    d.category = b.category ?? 'fun'
+    d.location = s(b.location)
+    d.start_at = isoToLocal(b.start_at)
+    d.end_at = isoToLocal(b.end_at)
+    d.cost = s(b.cost)
+  }
+  return d
+}
+
+export function FormModal({
+  title,
+  onClose,
+  children,
+}: {
+  title: string
+  onClose: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center">
+      <div className="max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-t-2xl bg-white p-5 sm:rounded-2xl">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-base font-semibold">{title}</h3>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="rounded-lg p-1 text-slate-500 hover:bg-slate-100"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+interface FormProps {
+  initial?: Draft
+  submitLabel: string
+  onSubmit: (b: Partial<Booking>) => Promise<void>
+  onClose: () => void
+}
+
+function FlightForm({ initial, submitLabel, onSubmit, onClose }: FormProps) {
+  const [f, setF] = useState<Draft>(initial ?? {})
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setF((p) => ({ ...p, [k]: e.target.value }))
   const num = (v: string | undefined) => (v === undefined || v === '' ? null : Number(v))
@@ -277,14 +359,14 @@ function FlightForm({ onSubmit, onClose }: { onSubmit: (b: Partial<Booking>) => 
       </div>
       <Input label="Notes" value={f.notes ?? ''} onChange={set('notes')} />
       <button type="submit" className="w-full rounded-lg bg-brand-600 py-2 text-sm font-medium text-white">
-        Add flight
+        {submitLabel}
       </button>
     </form>
   )
 }
 
-function HotelForm({ onSubmit, onClose }: { onSubmit: (b: Partial<Booking>) => Promise<void>; onClose: () => void }) {
-  const [f, setF] = useState<Draft>({})
+function HotelForm({ initial, submitLabel, onSubmit, onClose }: FormProps) {
+  const [f, setF] = useState<Draft>(initial ?? {})
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setF((p) => ({ ...p, [k]: e.target.value }))
   const num = (v: string | undefined) => (v === undefined || v === '' ? null : Number(v))
@@ -326,14 +408,14 @@ function HotelForm({ onSubmit, onClose }: { onSubmit: (b: Partial<Booking>) => P
       </div>
       <Input label="Notes" value={f.notes ?? ''} onChange={set('notes')} />
       <button type="submit" className="w-full rounded-lg bg-brand-600 py-2 text-sm font-medium text-white">
-        Add hotel
+        {submitLabel}
       </button>
     </form>
   )
 }
 
-function EventForm({ onSubmit, onClose }: { onSubmit: (b: Partial<Booking>) => Promise<void>; onClose: () => void }) {
-  const [f, setF] = useState<Draft>({ category: 'fun' })
+export function EventForm({ initial, submitLabel, onSubmit, onClose }: FormProps) {
+  const [f, setF] = useState<Draft>(initial ?? { category: 'fun' })
   const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setF((p) => ({ ...p, [k]: e.target.value }))
   const num = (v: string | undefined) => (v === undefined || v === '' ? null : Number(v))
@@ -370,9 +452,46 @@ function EventForm({ onSubmit, onClose }: { onSubmit: (b: Partial<Booking>) => P
       </div>
       <Input label="Notes" value={f.notes ?? ''} onChange={set('notes')} />
       <button type="submit" className="w-full rounded-lg bg-brand-600 py-2 text-sm font-medium text-white">
-        Add event
+        {submitLabel}
       </button>
     </form>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Expandable booking card (flights + hotels): minimal summary collapsed,
+// full detail on expand.
+// ---------------------------------------------------------------------------
+
+function ExpandableCard({
+  summary,
+  actions,
+  children,
+}: {
+  summary: React.ReactNode
+  actions: React.ReactNode
+  children: React.ReactNode
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="rounded-lg bg-white p-3 shadow-sm">
+      <div className="flex items-start gap-2">
+        <button
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          className="min-w-0 flex-1 text-left"
+        >
+          <div className="flex items-center gap-2">
+            <p className="min-w-0 flex-1 truncate text-sm font-medium">{summary}</p>
+            <ChevronDown
+              className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`}
+            />
+          </div>
+        </button>
+        <div className="flex shrink-0 items-center">{actions}</div>
+      </div>
+      {open && <div className="mt-2 border-t border-slate-100 pt-2">{children}</div>}
+    </div>
   )
 }
 
@@ -386,11 +505,13 @@ export function Bookings({
   selectedTripId,
   onSelectTrip,
   onAdd,
+  onUpdate,
   onDelete,
   seedMode,
 }: Props) {
   const trip = trips.find((t) => t.id === selectedTripId) ?? null
   const [adding, setAdding] = useState<BookingKind | null>(null)
+  const [editing, setEditing] = useState<Booking | null>(null)
   const [busy, setBusy] = useState(false)
 
   const grouped = useMemo(() => {
@@ -416,7 +537,97 @@ export function Bookings({
     }
   }
 
-  const title = adding === 'flight' ? 'Add flight' : adding === 'hotel' ? 'Add hotel' : 'Add event'
+  const saveEdit = async (body: Partial<Booking>) => {
+    if (!editing) return
+    setBusy(true)
+    try {
+      await onUpdate(editing, body)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const closeModal = () => {
+    setAdding(null)
+    setEditing(null)
+  }
+
+  const formKind = editing?.kind ?? adding
+  const modalTitle = editing
+    ? `Edit ${editing.kind}`
+    : adding === 'flight'
+      ? 'Add flight'
+      : adding === 'hotel'
+        ? 'Add hotel'
+        : 'Add event'
+
+  const renderForm = () => {
+    const submit = editing ? saveEdit : add
+    const submitLabel = editing ? 'Save changes' : formKind === 'flight' ? 'Add flight' : formKind === 'hotel' ? 'Add hotel' : 'Add event'
+    const initial = editing ? bookingToDraft(editing) : undefined
+    if (formKind === 'flight')
+      return <FlightForm initial={initial} submitLabel={submitLabel} onSubmit={submit} onClose={closeModal} />
+    if (formKind === 'hotel')
+      return <HotelForm initial={initial} submitLabel={submitLabel} onSubmit={submit} onClose={closeModal} />
+    return <EventForm initial={initial} submitLabel={submitLabel} onSubmit={submit} onClose={closeModal} />
+  }
+
+  const cardActions = (b: Booking) =>
+    !seedMode && (
+      <>
+        <button
+          onClick={() => setEditing(b)}
+          aria-label="Edit booking"
+          className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+        >
+          <Pencil className="h-4 w-4" />
+        </button>
+        <button
+          onClick={() => void onDelete(b)}
+          aria-label="Delete booking"
+          className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      </>
+    )
+
+  /** One-line summary shown when a flight/hotel card is collapsed. */
+  const cardSummary = (b: Booking) => {
+    if (b.kind === 'flight' && trip) {
+      return (
+        <>
+          {CATEGORY_EMOJI[b.category] ?? '📌'} {b.title}
+          {(b.depart_at || b.arrive_at) && (
+            <span className="block truncate text-xs font-normal text-slate-500">
+              {b.depart_at && <DualTime iso={b.depart_at} trip={trip} />}
+              {b.depart_at && b.arrive_at && ' → '}
+              {b.arrive_at && !b.depart_at && 'Arrives '}
+              {b.arrive_at && <DualTime iso={b.arrive_at} trip={trip} mode="time" />}
+            </span>
+          )}
+        </>
+      )
+    }
+    if (b.kind === 'hotel') {
+      return (
+        <>
+          {CATEGORY_EMOJI[b.category] ?? '📌'} {b.title}
+          {b.check_in && (
+            <span className="block text-xs font-normal text-slate-500">
+              {formatShortDate(b.check_in)}
+              {b.check_out && b.check_out !== b.check_in ? ` → ${formatShortDate(b.check_out)}` : ''}
+            </span>
+          )}
+        </>
+      )
+    }
+    return (
+      <>
+        {CATEGORY_EMOJI[b.category] ?? '📌'} {b.title}
+      </>
+    )
+  }
 
   return (
     <div>
@@ -470,63 +681,42 @@ export function Bookings({
                 <p className="text-xs text-slate-400">None yet.</p>
               )}
               <div className="space-y-2">
-                {grouped[kind].map((b) => (
-                  <div key={b.id} className="rounded-lg bg-white p-3 shadow-sm">
-                    <div className="mb-2 flex items-start justify-between gap-2">
-                      <p className="text-sm font-medium">
-                        {CATEGORY_EMOJI[b.category] ?? '📌'} {b.title}
-                      </p>
-                      {!seedMode && (
-                        <button
-                          onClick={() => void onDelete(b)}
-                          aria-label="Delete booking"
-                          className="shrink-0 rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      )}
+                {grouped[kind].map((b) =>
+                  b.kind === 'event' ? (
+                    <div key={b.id} className="rounded-lg bg-white p-3 shadow-sm">
+                      <div className="mb-2 flex items-start justify-between gap-2">
+                        <p className="text-sm font-medium">
+                          {CATEGORY_EMOJI[b.category] ?? '📌'} {b.title}
+                        </p>
+                        <div className="flex shrink-0 items-center">{cardActions(b)}</div>
+                      </div>
+                      <EventCard b={b} trip={trip} />
                     </div>
-                    {b.kind === 'flight' && <FlightCard b={b} trip={trip} />}
-                    {b.kind === 'hotel' && <HotelCard b={b} />}
-                    {b.kind === 'event' && <EventCard b={b} trip={trip} />}
-                  </div>
-                ))}
+                  ) : (
+                    <ExpandableCard
+                      key={b.id}
+                      summary={cardSummary(b)}
+                      actions={cardActions(b)}
+                    >
+                      {b.kind === 'flight' && <FlightCard b={b} trip={trip} />}
+                      {b.kind === 'hotel' && <HotelCard b={b} />}
+                    </ExpandableCard>
+                  ),
+                )}
               </div>
             </section>
           ))}
         </div>
       )}
 
-      {adding && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center">
-          <div className="max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-t-2xl bg-white p-5 sm:rounded-2xl">
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-base font-semibold">{title}</h3>
-              <button
-                onClick={() => setAdding(null)}
-                aria-label="Close"
-                className="rounded-lg p-1 text-slate-500 hover:bg-slate-100"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            {busy ? (
-              <p className="py-8 text-center text-sm text-slate-500">Saving…</p>
-            ) : (
-              <>
-                {adding === 'flight' && (
-                  <FlightForm onSubmit={add} onClose={() => setAdding(null)} />
-                )}
-                {adding === 'hotel' && (
-                  <HotelForm onSubmit={add} onClose={() => setAdding(null)} />
-                )}
-                {adding === 'event' && (
-                  <EventForm onSubmit={add} onClose={() => setAdding(null)} />
-                )}
-              </>
-            )}
-          </div>
-        </div>
+      {(adding || editing) && (
+        <FormModal title={modalTitle} onClose={closeModal}>
+          {busy ? (
+            <p className="py-8 text-center text-sm text-slate-500">Saving…</p>
+          ) : (
+            renderForm()
+          )}
+        </FormModal>
       )}
     </div>
   )
