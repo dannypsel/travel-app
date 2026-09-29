@@ -1,14 +1,15 @@
 import { useState } from 'react'
 import { Plane } from 'lucide-react'
-import { useAuth } from '@/lib/auth'
+import { supabase, useAuth } from '@/lib/auth'
 
 export function SignIn() {
-  const { signIn, signUp } = useAuth()
+  const { signIn, signUp, signInWithGoogle } = useAuth()
   const [mode, setMode] = useState<'signin' | 'signup'>('signin')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [googleBusy, setGoogleBusy] = useState(false)
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -20,6 +21,14 @@ export function SignIn() {
         : await signUp(email.trim(), password)
     setError(err)
     setBusy(false)
+  }
+
+  const google = async () => {
+    setGoogleBusy(true)
+    setError(null)
+    const err = await signInWithGoogle()
+    setError(err)
+    setGoogleBusy(false)
   }
 
   const switchMode = (m: 'signin' | 'signup') => {
@@ -42,6 +51,23 @@ export function SignIn() {
         <p className="mb-6 text-sm text-slate-500">
           {isSignup ? 'Create an account to get started.' : 'Sign in to see your trips.'}
         </p>
+        {supabase && (
+          <>
+            <button
+              type="button"
+              onClick={() => void google()}
+              disabled={googleBusy}
+              className="mb-2 w-full rounded-lg border border-slate-200 bg-white py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              {googleBusy ? 'Redirecting to Google…' : 'Continue with Google'}
+            </button>
+            <div className="my-4 flex items-center gap-3 text-xs text-slate-400">
+              <span className="h-px flex-1 bg-slate-200" />
+              or
+              <span className="h-px flex-1 bg-slate-200" />
+            </div>
+          </>
+        )}
         <label className="mb-3 block">
           <span className="mb-1 block text-xs font-medium text-slate-600">Email</span>
           <input

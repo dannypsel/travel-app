@@ -13,6 +13,36 @@ export interface Trip {
   start_date: string // YYYY-MM-DD
   end_date: string // YYYY-MM-DD
   notes: string | null
+  owner_id: string | null
+  created_at: string
+}
+
+export type TripMemberRole = 'owner' | 'editor' | 'viewer'
+
+export interface TripMember {
+  trip_id: string
+  user_id: string
+  email: string | null
+  role: TripMemberRole
+  created_at: string
+}
+
+export interface MembersResponse {
+  owner_id: string | null
+  members: TripMember[]
+}
+
+export interface ApiKey {
+  id: string
+  name: string
+  created_at: string
+  last_used_at: string | null
+}
+
+export interface CreatedApiKey {
+  id: string
+  name: string
+  key: string // plaintext, returned ONCE at creation
   created_at: string
 }
 

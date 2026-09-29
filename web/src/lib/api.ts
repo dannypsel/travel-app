@@ -3,11 +3,15 @@
 // talks to Supabase tables directly.
 
 import type {
+  ApiKey,
   Booking,
+  CreatedApiKey,
   Expense,
   ImportDraft,
+  MembersResponse,
   Trip,
   TripBudgetResponse,
+  TripMember,
 } from '@/types'
 
 const BASE = (import.meta.env.VITE_BACKEND_URL ?? '').replace(/\/$/, '')
@@ -97,6 +101,26 @@ export const confirmDraft = (t: string, id: string, tripId: string) =>
   post<Booking>(`/import-queue/${id}/confirm`, t, { trip_id: tripId })
 export const discardDraft = (t: string, id: string) =>
   post<void>(`/import-queue/${id}/discard`, t, {})
+
+// Trip sharing
+export const listMembers = (t: string, tripId: string) =>
+  request<MembersResponse>(`/trips/${tripId}/members`, t)
+export const addMember = (
+  t: string,
+  tripId: string,
+  body: { email: string; role: 'editor' | 'viewer' },
+) => post<TripMember>(`/trips/${tripId}/members`, t, body)
+export const removeMember = (t: string, tripId: string, userId: string) =>
+  del(`/trips/${tripId}/members/${userId}`, t)
+export const claimTrip = (t: string, tripId: string) =>
+  post<Trip>(`/trips/${tripId}/claim`, t, {})
+
+// API keys (script/JSON access via the X-API-Key header)
+export const listApiKeys = (t: string) => request<ApiKey[]>('/users/me/api-keys', t)
+export const createApiKey = (t: string, name: string) =>
+  post<CreatedApiKey>('/users/me/api-keys', t, { name })
+export const deleteApiKey = (t: string, keyId: string) =>
+  del(`/users/me/api-keys/${keyId}`, t)
 
 export const health = () =>
   fetch(`${BASE}/health`).then((r) => (r.ok ? r.json() : Promise.reject(new Error('unhealthy'))))

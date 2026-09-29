@@ -16,6 +16,7 @@ export const SEED_TRIP: Trip = {
   start_date: '2026-10-10',
   end_date: '2026-10-20',
   notes: 'Sample trip (dev only). Add a real trip from the Calendar tab to replace it.',
+  owner_id: null,
   created_at: new Date().toISOString(),
 }
 

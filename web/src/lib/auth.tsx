@@ -21,12 +21,17 @@ const supabase: SupabaseClient | null =
     ? createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY)
     : null
 
+// Exported so components can check whether auth is configured (e.g. to show
+// the Google sign-in button) and read the current user from the session.
+export { supabase }
+
 interface AuthState {
   session: Session | null
   token: string | null
   ready: boolean
   signIn: (email: string, password: string) => Promise<string | null>
   signUp: (email: string, password: string) => Promise<string | null>
+  signInWithGoogle: () => Promise<string | null>
   signOut: () => Promise<void>
 }
 
@@ -63,6 +68,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return error ? error.message : null
   }, [])
 
+  const signInWithGoogle = useCallback(async () => {
+    if (!supabase) return 'Supabase is not configured (missing VITE_SUPABASE_URL / VITE_SUPABASE_PUBLISHABLE_KEY).'
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.origin },
+    })
+    // On success the browser redirects to Google; we never get here.
+    return error ? error.message : null
+  }, [])
+
   const signOut = useCallback(async () => {
     if (supabase) await supabase.auth.signOut()
   }, [])
@@ -74,9 +89,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       ready,
       signIn,
       signUp,
+      signInWithGoogle,
       signOut,
     }),
-    [session, ready, signIn, signUp, signOut],
+    [session, ready, signIn, signUp, signInWithGoogle, signOut],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

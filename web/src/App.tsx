@@ -7,6 +7,7 @@ import {
   ListOrdered,
   Plane,
   ReceiptText,
+  Share2,
   Wallet,
   LogOut,
   Plus,
@@ -24,8 +25,9 @@ import { Timeline } from '@/components/Timeline'
 import { DailyPlan } from '@/components/DailyPlan'
 import { Bookings } from '@/components/Bookings'
 import { Budget } from '@/components/Budget'
+import { Sharing } from '@/components/Sharing'
 
-type Tab = 'calendar' | 'timeline' | 'daily' | 'bookings' | 'budget'
+type Tab = 'calendar' | 'timeline' | 'daily' | 'bookings' | 'budget' | 'sharing'
 
 const TABS: { id: Tab; label: string; icon: typeof Plane }[] = [
   { id: 'calendar', label: 'Calendar', icon: CalendarDays },
@@ -33,6 +35,7 @@ const TABS: { id: Tab; label: string; icon: typeof Plane }[] = [
   { id: 'daily', label: 'Daily plan', icon: Plane },
   { id: 'bookings', label: 'Bookings', icon: ReceiptText },
   { id: 'budget', label: 'Budget', icon: Wallet },
+  { id: 'sharing', label: 'Sharing', icon: Share2 },
 ]
 
 function Shell() {
@@ -190,6 +193,10 @@ function Shell() {
     setBudgetData(bd)
   }
 
+  const handleTripClaimed = (updated: Trip) => {
+    setTrips((p) => p.map((t) => (t.id === updated.id ? updated : t)))
+  }
+
   if (!ready) {
     return (
       <div className="flex min-h-dvh items-center justify-center text-sm text-slate-500">
@@ -298,11 +305,21 @@ function Shell() {
             seedMode={seedMode}
           />
         )}
+        {tab === 'sharing' && (
+          <Sharing
+            trips={trips}
+            selectedTripId={selectedTripId}
+            onSelectTrip={setSelectedTripId}
+            token={token}
+            seedMode={seedMode}
+            onTripClaimed={handleTripClaimed}
+          />
+        )}
       </main>
 
       {/* Bottom tab bar — safe-area padded for the home indicator */}
       <nav className="app-safe-bottom fixed inset-x-0 bottom-0 border-t border-slate-200 bg-white">
-        <div className="app-safe-x mx-auto grid max-w-3xl grid-cols-5">
+        <div className="app-safe-x mx-auto grid max-w-3xl grid-cols-6">
           {TABS.map(({ id, label, icon: Icon }) => (
             <button
               key={id}

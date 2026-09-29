@@ -4,8 +4,10 @@ Entry points:
 - Local dev: `uvicorn api:app` (see scripts/local-dev.sh)
 - AWS Lambda: lambda_handler.py wraps this app with Mangum.
 """
+import hashlib
 import logging
 import os
+import secrets
 from datetime import date, datetime, timezone
 
 from dotenv import load_dotenv
@@ -77,6 +79,104 @@ def _auth(authorization: str | None) -> str:
     return str(uid)
 
 
+def _auth_user(authorization: str | None, x_api_key: str | None) -> str:
+    """Return the user id from a Supabase JWT or a travel API key, else 401.
+
+    API keys are created via POST /users/me/api-keys and passed as the
+    X-API-Key header. They enable script/JSON access without an
+    interactive login.
+    """
+    if x_api_key:
+        key_hash = hashlib.sha256(x_api_key.encode()).hexdigest()
+        rows = (
+            get_supabase()
+            .table("travel_api_keys")
+            .select("user_id")
+            .eq("key_hash", key_hash)
+            .limit(1)
+            .execute()
+            .data
+        )
+        if not rows:
+            raise HTTPException(status_code=401, detail="invalid API key")
+        uid = str(rows[0]["user_id"])
+        try:
+            get_supabase().table("travel_api_keys").update(
+                {"last_used_at": datetime.now(timezone.utc).isoformat()}
+            ).eq("key_hash", key_hash).execute()
+        except Exception:
+            logger.warning("failed to touch api key last_used_at", exc_info=True)
+        return uid
+    return _auth(authorization)
+
+
+def _member_role(trip_id: str, uid: str) -> str | None:
+    rows = (
+        get_supabase()
+        .table("travel_trip_members")
+        .select("role")
+        .eq("trip_id", trip_id)
+        .eq("user_id", uid)
+        .limit(1)
+        .execute()
+        .data
+    )
+    return rows[0]["role"] if rows else None
+
+
+def _trip_access(trip_id: str, uid: str) -> dict:
+    """Return the trip if uid may read it, else 404.
+
+    Legacy trips (owner_id NULL) stay visible to any authenticated user
+    until claimed.
+    """
+    trip = _row_or_404("travel_trips", trip_id)
+    if trip.get("owner_id") is None:
+        return trip
+    if str(trip["owner_id"]) == uid:
+        return trip
+    if _member_role(trip_id, uid):
+        return trip
+    raise HTTPException(status_code=404, detail="travel_trips row not found")
+
+
+def _require_editor(trip_id: str, uid: str) -> dict:
+    """Return the trip if uid may modify its contents, else 403/404."""
+    trip = _trip_access(trip_id, uid)
+    if trip.get("owner_id") is None:
+        return trip
+    if str(trip["owner_id"]) == uid:
+        return trip
+    if _member_role(trip_id, uid) in ("owner", "editor"):
+        return trip
+    raise HTTPException(status_code=403, detail="editor access required")
+
+
+def _require_owner(trip_id: str, uid: str) -> dict:
+    """Return the trip if uid owns it, else 403/404."""
+    trip = _trip_access(trip_id, uid)
+    if trip.get("owner_id") is None:
+        raise HTTPException(status_code=409, detail="trip has no owner yet — claim it first")
+    if str(trip["owner_id"]) == uid:
+        return trip
+    if _member_role(trip_id, uid) == "owner":
+        return trip
+    raise HTTPException(status_code=403, detail="owner access required")
+
+
+def _find_user_id_by_email(email: str) -> str | None:
+    """Resolve a Supabase user id by email via the admin API."""
+    try:
+        resp = get_supabase().auth.admin.list_users()
+        users = resp.users if hasattr(resp, "users") else resp
+        for u in users or []:
+            if (getattr(u, "email", "") or "").lower() == email.lower():
+                return str(u.id)
+    except Exception:
+        logger.warning("admin user lookup failed", exc_info=True)
+    return None
+
+
 def _row_or_404(table: str, row_id: str) -> dict:
     rows = get_supabase().table(table).select("*").eq("id", row_id).limit(1).execute().data
     if not rows:
@@ -97,39 +197,68 @@ def health():
 
 
 @app.get("/trips")
-def list_trips(authorization: str = Header(None)):
-    _auth(authorization)
-    rows = (
-        get_supabase()
-        .table("travel_trips")
+def list_trips(authorization: str = Header(None),
+    x_api_key: str = Header(None, alias="X-API-Key")):
+    uid = _auth_user(authorization, x_api_key)
+    supabase = get_supabase()
+    trips = (
+        supabase.table("travel_trips")
         .select("*")
         .order("start_date", desc=False)
         .execute()
         .data
+        or []
     )
-    return rows or []
+    member_rows = (
+        supabase.table("travel_trip_members")
+        .select("trip_id")
+        .eq("user_id", uid)
+        .execute()
+        .data
+        or []
+    )
+    member_ids = {r["trip_id"] for r in member_rows}
+    # Legacy trips (owner_id NULL) stay visible to all authenticated users
+    # until claimed; otherwise only the owner and members see the trip.
+    return [
+        t
+        for t in trips
+        if t.get("owner_id") is None
+        or str(t.get("owner_id")) == uid
+        or t["id"] in member_ids
+    ]
 
 
 @app.post("/trips")
-def create_trip(payload: dict = Body(...), authorization: str = Header(None)):
-    _auth(authorization)
+def create_trip(payload: dict = Body(...), authorization: str = Header(None),
+    x_api_key: str = Header(None, alias="X-API-Key")):
+    uid = _auth_user(authorization, x_api_key)
     allowed = {"name", "destination", "destination_tz", "home_tz",
                "start_date", "end_date", "notes"}
     row = {k: v for k, v in payload.items() if k in allowed}
-    data = get_supabase().table("travel_trips").insert(row).execute().data
-    return data[0]
+    row["owner_id"] = uid
+    supabase = get_supabase()
+    data = supabase.table("travel_trips").insert(row).execute().data
+    trip = data[0]
+    supabase.table("travel_trip_members").upsert(
+        {"trip_id": trip["id"], "user_id": uid, "role": "owner"},
+        on_conflict="trip_id,user_id",
+    ).execute()
+    return trip
 
 
 @app.get("/trips/{trip_id}")
-def get_trip(trip_id: str, authorization: str = Header(None)):
-    _auth(authorization)
-    return _trip_or_404(trip_id)
+def get_trip(trip_id: str, authorization: str = Header(None),
+    x_api_key: str = Header(None, alias="X-API-Key")):
+    uid = _auth_user(authorization, x_api_key)
+    return _trip_access(trip_id, uid)
 
 
 @app.patch("/trips/{trip_id}")
-def update_trip(trip_id: str, payload: dict = Body(...), authorization: str = Header(None)):
-    _auth(authorization)
-    _trip_or_404(trip_id)
+def update_trip(trip_id: str, payload: dict = Body(...), authorization: str = Header(None),
+    x_api_key: str = Header(None, alias="X-API-Key")):
+    uid = _auth_user(authorization, x_api_key)
+    _require_editor(trip_id, uid)
     allowed = {"name", "destination", "destination_tz", "home_tz",
                "start_date", "end_date", "notes"}
     row = {k: v for k, v in payload.items() if k in allowed}
@@ -142,10 +271,140 @@ def update_trip(trip_id: str, payload: dict = Body(...), authorization: str = He
 
 
 @app.delete("/trips/{trip_id}")
-def delete_trip(trip_id: str, authorization: str = Header(None)):
-    _auth(authorization)
-    _trip_or_404(trip_id)
+def delete_trip(trip_id: str, authorization: str = Header(None),
+    x_api_key: str = Header(None, alias="X-API-Key")):
+    uid = _auth_user(authorization, x_api_key)
+    _require_owner(trip_id, uid)
     get_supabase().table("travel_trips").delete().eq("id", trip_id).execute()
+    return {"deleted": True}
+
+
+# ── Trip ownership & sharing ─────────────────────────────────────────
+
+
+@app.post("/trips/{trip_id}/claim")
+def claim_trip(trip_id: str,
+    authorization: str = Header(None),
+    x_api_key: str = Header(None, alias="X-API-Key")):
+    """Claim an ownerless (legacy) trip: caller becomes its owner."""
+    uid = _auth_user(authorization, x_api_key)
+    trip = _row_or_404("travel_trips", trip_id)
+    if trip.get("owner_id") is not None:
+        raise HTTPException(status_code=409, detail="trip already has an owner")
+    supabase = get_supabase()
+    supabase.table("travel_trips").update({"owner_id": uid}).eq("id", trip_id).execute()
+    supabase.table("travel_trip_members").upsert(
+        {"trip_id": trip_id, "user_id": uid, "role": "owner"},
+        on_conflict="trip_id,user_id",
+    ).execute()
+    return supabase.table("travel_trips").select("*").eq("id", trip_id).execute().data[0]
+
+
+@app.get("/trips/{trip_id}/members")
+def list_members(trip_id: str,
+    authorization: str = Header(None),
+    x_api_key: str = Header(None, alias="X-API-Key")):
+    uid = _auth_user(authorization, x_api_key)
+    trip = _trip_access(trip_id, uid)
+    rows = (
+        get_supabase().table("travel_trip_members").select("*")
+        .eq("trip_id", trip_id).order("created_at").execute().data
+        or []
+    )
+    return {"owner_id": trip.get("owner_id"), "members": rows}
+
+
+@app.post("/trips/{trip_id}/members")
+def add_member(trip_id: str, payload: dict = Body(...),
+    authorization: str = Header(None),
+    x_api_key: str = Header(None, alias="X-API-Key")):
+    """Share a trip: owner invites by email. The person must already have
+    an account (sign up / Google sign-in first)."""
+    uid = _auth_user(authorization, x_api_key)
+    _require_owner(trip_id, uid)
+    email = (payload.get("email") or "").strip()
+    role = payload.get("role") or "viewer"
+    if not email:
+        raise HTTPException(status_code=400, detail="email is required")
+    if role not in ("editor", "viewer"):
+        raise HTTPException(status_code=400, detail="role must be editor or viewer")
+    member_id = _find_user_id_by_email(email)
+    if not member_id:
+        raise HTTPException(
+            status_code=404,
+            detail="no account found for that email — ask them to create one first",
+        )
+    data = (
+        get_supabase().table("travel_trip_members").upsert(
+            {"trip_id": trip_id, "user_id": member_id, "email": email, "role": role},
+            on_conflict="trip_id,user_id",
+        ).execute().data
+    )
+    return data[0]
+
+
+@app.delete("/trips/{trip_id}/members/{member_id}")
+def remove_member(trip_id: str, member_id: str,
+    authorization: str = Header(None),
+    x_api_key: str = Header(None, alias="X-API-Key")):
+    uid = _auth_user(authorization, x_api_key)
+    trip = _require_owner(trip_id, uid)
+    if str(trip.get("owner_id")) == member_id:
+        raise HTTPException(status_code=400, detail="cannot remove the trip owner")
+    get_supabase().table("travel_trip_members").delete().eq(
+        "trip_id", trip_id).eq("user_id", member_id).execute()
+    return {"deleted": True}
+
+
+# ── API keys (script/JSON access) ────────────────────────────────────
+
+
+@app.get("/users/me/api-keys")
+def list_api_keys(
+    authorization: str = Header(None),
+    x_api_key: str = Header(None, alias="X-API-Key"),
+):
+    uid = _auth_user(authorization, x_api_key)
+    rows = (
+        get_supabase().table("travel_api_keys")
+        .select("id, name, created_at, last_used_at")
+        .eq("user_id", uid).order("created_at", desc=True).execute().data
+        or []
+    )
+    return rows
+
+
+@app.post("/users/me/api-keys")
+def create_api_key(payload: dict = Body(...),
+    authorization: str = Header(None),
+    x_api_key: str = Header(None, alias="X-API-Key")):
+    """Create an API key. The plaintext key is returned ONCE — store it
+    somewhere safe (it is only stored hashed server-side)."""
+    uid = _auth_user(authorization, x_api_key)
+    name = (payload.get("name") or "api key").strip() or "api key"
+    raw = "trk_" + secrets.token_urlsafe(32)
+    key_hash = hashlib.sha256(raw.encode()).hexdigest()
+    data = (
+        get_supabase().table("travel_api_keys")
+        .insert({"user_id": uid, "name": name, "key_hash": key_hash})
+        .execute().data
+    )
+    row = data[0]
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "key": raw,
+        "created_at": row["created_at"],
+    }
+
+
+@app.delete("/users/me/api-keys/{key_id}")
+def delete_api_key(key_id: str,
+    authorization: str = Header(None),
+    x_api_key: str = Header(None, alias="X-API-Key")):
+    uid = _auth_user(authorization, x_api_key)
+    get_supabase().table("travel_api_keys").delete().eq(
+        "id", key_id).eq("user_id", uid).execute()
     return {"deleted": True}
 
 
@@ -166,9 +425,10 @@ BOOKING_FIELDS = {
 
 
 @app.get("/trips/{trip_id}/bookings")
-def list_bookings(trip_id: str, authorization: str = Header(None)):
-    _auth(authorization)
-    _trip_or_404(trip_id)
+def list_bookings(trip_id: str, authorization: str = Header(None),
+    x_api_key: str = Header(None, alias="X-API-Key")):
+    uid = _auth_user(authorization, x_api_key)
+    _trip_access(trip_id, uid)
     rows = (
         get_supabase()
         .table("travel_bookings")
@@ -182,19 +442,47 @@ def list_bookings(trip_id: str, authorization: str = Header(None)):
 
 
 @app.post("/trips/{trip_id}/bookings")
-def create_booking(trip_id: str, payload: dict = Body(...), authorization: str = Header(None)):
-    _auth(authorization)
-    _trip_or_404(trip_id)
+def create_booking(trip_id: str, payload: dict = Body(...), authorization: str = Header(None),
+    x_api_key: str = Header(None, alias="X-API-Key")):
+    uid = _auth_user(authorization, x_api_key)
+    _require_editor(trip_id, uid)
     row = {k: v for k, v in payload.items() if k in BOOKING_FIELDS}
     row["trip_id"] = trip_id
     data = get_supabase().table("travel_bookings").insert(row).execute().data
     return data[0]
 
 
+@app.post("/trips/{trip_id}/bookings/bulk")
+def bulk_create_bookings(trip_id: str, payload: dict = Body(...),
+    authorization: str = Header(None),
+    x_api_key: str = Header(None, alias="X-API-Key")):
+    """Create many bookings in one call — the JSON import path.
+
+    Body: {"bookings": [ {booking fields...}, ... ]}.
+    Unknown fields are ignored; every booking gets the trip's id.
+    """
+    uid = _auth_user(authorization, x_api_key)
+    _require_editor(trip_id, uid)
+    items = payload.get("bookings")
+    if not isinstance(items, list) or not items:
+        raise HTTPException(status_code=400, detail="bookings must be a non-empty list")
+    rows = []
+    for item in items:
+        if not isinstance(item, dict):
+            raise HTTPException(status_code=400, detail="each booking must be an object")
+        row = {k: v for k, v in item.items() if k in BOOKING_FIELDS}
+        row["trip_id"] = trip_id
+        rows.append(row)
+    data = get_supabase().table("travel_bookings").insert(rows).execute().data
+    return {"created": len(data or []), "bookings": data or []}
+
+
 @app.patch("/bookings/{booking_id}")
-def update_booking(booking_id: str, payload: dict = Body(...), authorization: str = Header(None)):
-    _auth(authorization)
-    _row_or_404("travel_bookings", booking_id)
+def update_booking(booking_id: str, payload: dict = Body(...), authorization: str = Header(None),
+    x_api_key: str = Header(None, alias="X-API-Key")):
+    uid = _auth_user(authorization, x_api_key)
+    booking = _row_or_404("travel_bookings", booking_id)
+    _require_editor(booking["trip_id"], uid)
     row = {k: v for k, v in payload.items() if k in BOOKING_FIELDS}
     if not row:
         raise HTTPException(status_code=400, detail="nothing to update")
@@ -210,9 +498,11 @@ def update_booking(booking_id: str, payload: dict = Body(...), authorization: st
 
 
 @app.delete("/bookings/{booking_id}")
-def delete_booking(booking_id: str, authorization: str = Header(None)):
-    _auth(authorization)
-    _row_or_404("travel_bookings", booking_id)
+def delete_booking(booking_id: str, authorization: str = Header(None),
+    x_api_key: str = Header(None, alias="X-API-Key")):
+    uid = _auth_user(authorization, x_api_key)
+    booking = _row_or_404("travel_bookings", booking_id)
+    _require_editor(booking["trip_id"], uid)
     get_supabase().table("travel_bookings").delete().eq("id", booking_id).execute()
     return {"deleted": True}
 
@@ -224,9 +514,10 @@ EXPENSE_FIELDS = {"date", "amount", "currency", "category", "note", "source"}
 
 
 @app.get("/trips/{trip_id}/expenses")
-def list_expenses(trip_id: str, authorization: str = Header(None)):
-    _auth(authorization)
-    _trip_or_404(trip_id)
+def list_expenses(trip_id: str, authorization: str = Header(None),
+    x_api_key: str = Header(None, alias="X-API-Key")):
+    uid = _auth_user(authorization, x_api_key)
+    _trip_access(trip_id, uid)
     rows = (
         get_supabase()
         .table("travel_expenses")
@@ -240,9 +531,10 @@ def list_expenses(trip_id: str, authorization: str = Header(None)):
 
 
 @app.post("/trips/{trip_id}/expenses")
-def create_expense(trip_id: str, payload: dict = Body(...), authorization: str = Header(None)):
-    _auth(authorization)
-    _trip_or_404(trip_id)
+def create_expense(trip_id: str, payload: dict = Body(...), authorization: str = Header(None),
+    x_api_key: str = Header(None, alias="X-API-Key")):
+    uid = _auth_user(authorization, x_api_key)
+    _require_editor(trip_id, uid)
     row = {k: v for k, v in payload.items() if k in EXPENSE_FIELDS}
     row["trip_id"] = trip_id
     if not row.get("date") or row.get("amount") is None:
@@ -252,9 +544,11 @@ def create_expense(trip_id: str, payload: dict = Body(...), authorization: str =
 
 
 @app.delete("/expenses/{expense_id}")
-def delete_expense(expense_id: str, authorization: str = Header(None)):
-    _auth(authorization)
-    _row_or_404("travel_expenses", expense_id)
+def delete_expense(expense_id: str, authorization: str = Header(None),
+    x_api_key: str = Header(None, alias="X-API-Key")):
+    uid = _auth_user(authorization, x_api_key)
+    expense = _row_or_404("travel_expenses", expense_id)
+    _require_editor(expense["trip_id"], uid)
     get_supabase().table("travel_expenses").delete().eq("id", expense_id).execute()
     return {"deleted": True}
 
@@ -307,9 +601,10 @@ def _budget_pacing_response(trip: dict, budget: dict | None) -> dict:
 
 
 @app.get("/trips/{trip_id}/budget")
-def get_budget(trip_id: str, authorization: str = Header(None)):
-    _auth(authorization)
-    trip = _trip_or_404(trip_id)
+def get_budget(trip_id: str, authorization: str = Header(None),
+    x_api_key: str = Header(None, alias="X-API-Key")):
+    uid = _auth_user(authorization, x_api_key)
+    trip = _trip_access(trip_id, uid)
     rows = (
         get_supabase()
         .table("travel_budgets")
@@ -323,9 +618,10 @@ def get_budget(trip_id: str, authorization: str = Header(None)):
 
 
 @app.put("/trips/{trip_id}/budget")
-def put_budget(trip_id: str, payload: dict = Body(...), authorization: str = Header(None)):
-    _auth(authorization)
-    trip = _trip_or_404(trip_id)
+def put_budget(trip_id: str, payload: dict = Body(...), authorization: str = Header(None),
+    x_api_key: str = Header(None, alias="X-API-Key")):
+    uid = _auth_user(authorization, x_api_key)
+    trip = _require_editor(trip_id, uid)
     if payload.get("total_budget") is None:
         raise HTTPException(status_code=400, detail="total_budget is required")
     supabase = get_supabase()
@@ -347,8 +643,9 @@ def put_budget(trip_id: str, payload: dict = Body(...), authorization: str = Hea
 
 
 @app.get("/import-queue")
-def list_import_queue(authorization: str = Header(None)):
-    _auth(authorization)
+def list_import_queue(authorization: str = Header(None),
+    x_api_key: str = Header(None, alias="X-API-Key")):
+    _auth_user(authorization, x_api_key)
     rows = (
         get_supabase()
         .table("travel_import_queue")
@@ -362,14 +659,15 @@ def list_import_queue(authorization: str = Header(None)):
 
 
 @app.post("/import-queue/{queue_id}/confirm")
-def confirm_import(queue_id: str, payload: dict = Body(...), authorization: str = Header(None)):
+def confirm_import(queue_id: str, payload: dict = Body(...), authorization: str = Header(None),
+    x_api_key: str = Header(None, alias="X-API-Key")):
     """Create a booking from a queue draft and mark the draft confirmed."""
-    _auth(authorization)
+    uid = _auth_user(authorization, x_api_key)
     draft = _row_or_404("travel_import_queue", queue_id)
     trip_id = payload.get("trip_id")
     if not trip_id:
         raise HTTPException(status_code=400, detail="trip_id is required")
-    _trip_or_404(trip_id)
+    _require_editor(trip_id, uid)
 
     parsed = draft.get("parsed_json") or {}
     booking = {k: v for k, v in parsed.items() if k in BOOKING_FIELDS}
@@ -386,8 +684,9 @@ def confirm_import(queue_id: str, payload: dict = Body(...), authorization: str 
 
 
 @app.post("/import-queue/{queue_id}/discard")
-def discard_import(queue_id: str, authorization: str = Header(None)):
-    _auth(authorization)
+def discard_import(queue_id: str, authorization: str = Header(None),
+    x_api_key: str = Header(None, alias="X-API-Key")):
+    _auth_user(authorization, x_api_key)
     _row_or_404("travel_import_queue", queue_id)
     get_supabase().table("travel_import_queue").update(
         {"status": "discarded",
@@ -403,11 +702,12 @@ BOOKING_CONFIDENCE_FIELDS = {"confirmation_number", "flight_number", "segments"}
 
 
 @app.post("/refresh")
-def refresh(payload: dict = Body(...), authorization: str = Header(None)):
+def refresh(payload: dict = Body(...), authorization: str = Header(None),
+    x_api_key: str = Header(None, alias="X-API-Key")):
     """Manual refresh hook: accept a raw email (read from Gmail by the user's
     agent — Gmail reading itself is NOT done by this service), run the
     parser, and store a review-queue draft when it looks like a booking."""
-    _auth(authorization)
+    _auth_user(authorization, x_api_key)
     result = parse_booking_email(
         subject=payload.get("subject") or "",
         sender=payload.get("from") or "",
