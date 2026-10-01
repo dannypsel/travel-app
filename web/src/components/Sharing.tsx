@@ -6,7 +6,7 @@ import { Trash2, UserPlus } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
 import * as api from '@/lib/api'
 import { ApiError } from '@/lib/api'
-import type { MembersResponse, Trip, TripMember } from '@/types'
+import type { MembersResponse, Trip, TripInvite, TripMember } from '@/types'
 
 interface Props {
   trips: Trip[]
@@ -102,6 +102,18 @@ export function Sharing({ trips, selectedTripId, onSelectTrip, token, seedMode, 
     }
   }
 
+  const removePending = async (inv: TripInvite) => {
+    if (!token || !trip) return
+    if (!window.confirm(`Cancel the invite for ${inv.email}?`)) return
+    setError(null)
+    try {
+      await api.removeInvite(token, trip.id, inv.id)
+      await refresh()
+    } catch (err: unknown) {
+      setError(err instanceof ApiError ? err.message : 'Failed to cancel invite')
+    }
+  }
+
   const labelFor = (m: TripMember) =>
     m.email ?? (m.user_id === myId ? (session?.user.email ?? 'you') : `user ${m.user_id.slice(0, 8)}`)
 
@@ -187,9 +199,40 @@ export function Sharing({ trips, selectedTripId, onSelectTrip, token, seedMode, 
                     </div>
                   </li>
                 ))}
-                {(data?.members.length ?? 0) === 0 && (
+                {(data?.members.length ?? 0) === 0 && (data?.invites.length ?? 0) === 0 && (
                   <li className="text-sm text-slate-500">No members yet.</li>
                 )}
+                {(data?.invites ?? []).map((inv) => (
+                  <li
+                    key={`invite-${inv.id}`}
+                    className="flex items-center justify-between gap-2 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-slate-600">
+                        {inv.email}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${ROLE_BADGE[inv.role] ?? ROLE_BADGE.viewer}`}
+                      >
+                        {inv.role}
+                      </span>
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+                        pending
+                      </span>
+                      {isOwner && (
+                        <button
+                          onClick={() => void removePending(inv)}
+                          aria-label={`Cancel invite for ${inv.email}`}
+                          className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+                  </li>
+                ))}
               </ul>
 
               {isOwner && data?.owner_id != null && (
@@ -198,8 +241,8 @@ export function Sharing({ trips, selectedTripId, onSelectTrip, token, seedMode, 
                     <UserPlus className="h-4 w-4" /> Invite someone
                   </h3>
                   <p className="mb-3 text-xs text-slate-500">
-                    They need an account first (sign up or Google sign-in), then invite them by
-                    the email they used.
+                    If they don't have an account yet, invite them anyway — they'll be
+                    added automatically the first time they sign in with that email.
                   </p>
                   <div className="flex flex-col gap-2 sm:flex-row">
                     <input

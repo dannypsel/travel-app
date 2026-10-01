@@ -11,6 +11,7 @@ import type {
   MembersResponse,
   Trip,
   TripBudgetResponse,
+  TripInvite,
   TripMember,
 } from '@/types'
 
@@ -109,9 +110,11 @@ export const addMember = (
   t: string,
   tripId: string,
   body: { email: string; role: 'editor' | 'viewer' },
-) => post<TripMember>(`/trips/${tripId}/members`, t, body)
+) => post<TripMember | { pending: true; invite: TripInvite | null }>(`/trips/${tripId}/members`, t, body)
 export const removeMember = (t: string, tripId: string, userId: string) =>
   del(`/trips/${tripId}/members/${userId}`, t)
+export const removeInvite = (t: string, tripId: string, inviteId: string) =>
+  del(`/trips/${tripId}/invites/${inviteId}`, t)
 export const claimTrip = (t: string, tripId: string) =>
   post<Trip>(`/trips/${tripId}/claim`, t, {})
 

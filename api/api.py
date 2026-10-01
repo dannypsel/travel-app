@@ -59,16 +59,58 @@ def get_supabase() -> Client:
     return _client
 
 
+def _redeem_invites(uid: str, email: str | None) -> None:
+    """Best-effort: turn pending trip invites for this email into members.
+
+    Called after a successful JWT auth, so an invite sent before the
+    recipient had an account is honored on their first sign-in.
+    Never raises — auth must not fail because of this.
+    """
+    if not email:
+        return
+    try:
+        sb = get_supabase()
+        invites = (
+            sb.table("travel_trip_invites")
+            .select("id,trip_id,role,email")
+            .ilike("email", email)
+            .execute()
+            .data
+            or []
+        )
+        for inv in invites:
+            try:
+                sb.table("travel_trip_members").upsert(
+                    {
+                        "trip_id": inv["trip_id"],
+                        "user_id": uid,
+                        "email": inv.get("email") or email,
+                        "role": inv["role"],
+                    },
+                    on_conflict="trip_id,user_id",
+                ).execute()
+                sb.table("travel_trip_invites").delete().eq(
+                    "id", inv["id"]).execute()
+            except Exception:
+                logger.warning("failed to redeem invite %s", inv.get("id"),
+                               exc_info=True)
+    except Exception:
+        logger.warning("invite redemption lookup failed", exc_info=True)
+
+
 def _auth(authorization: str | None) -> str:
     """Verify the Supabase JWT and return the user id, else 401."""
     if not authorization:
         raise HTTPException(status_code=401, detail="missing access token")
     token = authorization.removeprefix("Bearer ").strip()
     try:
-        uid = get_supabase().auth.get_user(token).user.id
+        user = get_supabase().auth.get_user(token).user
+        uid = user.id if user else None
+        email = (getattr(user, "email", None) or "").strip() or None
     except AuthApiError:
         logger.warning("access token rejected", exc_info=True)
         uid = None
+        email = None
     except Exception:
         logger.warning("auth service unreachable", exc_info=True)
         raise HTTPException(
@@ -76,6 +118,7 @@ def _auth(authorization: str | None) -> str:
         ) from None
     if not uid:
         raise HTTPException(status_code=401, detail="invalid access token")
+    _redeem_invites(str(uid), email)
     return str(uid)
 
 
@@ -311,15 +354,22 @@ def list_members(trip_id: str,
         .eq("trip_id", trip_id).order("created_at").execute().data
         or []
     )
-    return {"owner_id": trip.get("owner_id"), "members": rows}
+    invites = (
+        get_supabase().table("travel_trip_invites").select("*")
+        .eq("trip_id", trip_id).order("created_at").execute().data
+        or []
+    )
+    return {"owner_id": trip.get("owner_id"), "members": rows,
+            "invites": invites}
 
 
 @app.post("/trips/{trip_id}/members")
 def add_member(trip_id: str, payload: dict = Body(...),
     authorization: str = Header(None),
     x_api_key: str = Header(None, alias="X-API-Key")):
-    """Share a trip: owner invites by email. The person must already have
-    an account (sign up / Google sign-in first)."""
+    """Share a trip: owner invites by email. If the email already has an
+    account it becomes a member immediately; otherwise a pending invite
+    is stored and redeemed automatically on their first sign-in."""
     uid = _auth_user(authorization, x_api_key)
     _require_owner(trip_id, uid)
     email = (payload.get("email") or "").strip()
@@ -328,19 +378,36 @@ def add_member(trip_id: str, payload: dict = Body(...),
         raise HTTPException(status_code=400, detail="email is required")
     if role not in ("editor", "viewer"):
         raise HTTPException(status_code=400, detail="role must be editor or viewer")
+    sb = get_supabase()
     member_id = _find_user_id_by_email(email)
     if not member_id:
-        raise HTTPException(
-            status_code=404,
-            detail="no account found for that email — ask them to create one first",
+        invite = (
+            sb.table("travel_trip_invites").upsert(
+                {"trip_id": trip_id, "email": email, "role": role,
+                 "invited_by": uid},
+                on_conflict="trip_id,email",
+            ).execute().data
         )
+        return {"pending": True, "invite": invite[0] if invite else None}
     data = (
-        get_supabase().table("travel_trip_members").upsert(
+        sb.table("travel_trip_members").upsert(
             {"trip_id": trip_id, "user_id": member_id, "email": email, "role": role},
             on_conflict="trip_id,user_id",
         ).execute().data
     )
     return data[0]
+
+
+@app.delete("/trips/{trip_id}/invites/{invite_id}")
+def remove_invite(trip_id: str, invite_id: str,
+    authorization: str = Header(None),
+    x_api_key: str = Header(None, alias="X-API-Key")):
+    """Revoke a pending invite (owner only)."""
+    uid = _auth_user(authorization, x_api_key)
+    _require_owner(trip_id, uid)
+    get_supabase().table("travel_trip_invites").delete().eq(
+        "id", invite_id).eq("trip_id", trip_id).execute()
+    return {"deleted": True}
 
 
 @app.delete("/trips/{trip_id}/members/{member_id}")

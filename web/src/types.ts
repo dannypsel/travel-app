@@ -27,9 +27,19 @@ export interface TripMember {
   created_at: string
 }
 
+export interface TripInvite {
+  id: string
+  trip_id: string
+  email: string
+  role: 'editor' | 'viewer'
+  invited_by: string | null
+  created_at: string
+}
+
 export interface MembersResponse {
   owner_id: string | null
   members: TripMember[]
+  invites: TripInvite[]
 }
 
 export interface ApiKey {

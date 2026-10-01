@@ -60,10 +60,12 @@ curl -s -X POST $BASE/trips/<id>/claim -H "X-API-Key: $KEY"
 
 ## Sharing
 
-The other person must already have an account (email sign-up or Google).
+Invite by email. If the email already has an account, they join immediately;
+otherwise a pending invite is stored and redeemed automatically on their first
+sign-in with that email.
 
 ```bash
-# list members
+# list members (includes pending invites)
 curl -s $BASE/trips/<id>/members -H "X-API-Key: $KEY"
 
 # share (role: editor or viewer)
@@ -73,6 +75,9 @@ curl -s -X POST $BASE/trips/<id>/members -H "X-API-Key: $KEY" \
 
 # remove
 curl -s -X DELETE $BASE/trips/<id>/members/<user_id> -H "X-API-Key: $KEY"
+
+# cancel a pending invite
+curl -s -X DELETE $BASE/trips/<id>/invites/<invite_id> -H "X-API-Key: $KEY"
 ```
 
 ## Bookings
