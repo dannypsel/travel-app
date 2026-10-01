@@ -22,16 +22,18 @@ import { SEED_BOOKINGS, SEED_BUDGET, SEED_EXPENSES, SEED_TRIP } from '@/seed'
 import { SignIn } from '@/components/SignIn'
 import { Calendar } from '@/components/Calendar'
 import { Itinerary } from '@/components/Itinerary'
+import { DailyPlan } from '@/components/DailyPlan'
 import { Bookings } from '@/components/Bookings'
 import { Budget } from '@/components/Budget'
 import { Sharing } from '@/components/Sharing'
 import { PullToRefresh } from '@/components/PullToRefresh'
 
-type Tab = 'calendar' | 'itinerary' | 'bookings' | 'budget' | 'sharing'
+type Tab = 'calendar' | 'itinerary' | 'daily' | 'bookings' | 'budget' | 'sharing'
 
 const TABS: { id: Tab; label: string; icon: typeof Plane }[] = [
   { id: 'calendar', label: 'Calendar', icon: CalendarDays },
   { id: 'itinerary', label: 'Itinerary', icon: ListOrdered },
+  { id: 'daily', label: 'Daily plan', icon: Plane },
   { id: 'bookings', label: 'Bookings', icon: ReceiptText },
   { id: 'budget', label: 'Budget', icon: Wallet },
   { id: 'sharing', label: 'Sharing', icon: Share2 },
@@ -295,6 +297,14 @@ function Shell() {
             onSelectTrip={setSelectedTripId}
             onAdd={addBooking}
             seedMode={seedMode}
+          />
+        )}
+        {tab === 'daily' && (
+          <DailyPlan
+            trips={trips}
+            bookings={bookings}
+            selectedTripId={selectedTripId}
+            onSelectTrip={setSelectedTripId}
           />
         )}
         {tab === 'bookings' && (

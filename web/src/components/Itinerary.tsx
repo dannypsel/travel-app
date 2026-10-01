@@ -1,8 +1,7 @@
-// Itinerary — the merged Timeline + Daily Plan view. A horizontally
-// scrollable day strip on top jumps to any day; the full trip renders
-// day-by-day below with a quick-add (+) on each day. One tab instead of two.
+// Itinerary — the full trip rendered day-by-day, with a quick-add (+)
+// on each day for ordinary events (meals, rest, …).
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Plus } from 'lucide-react'
 import type { Booking, Trip } from '@/types'
 import { CATEGORY_EMOJI } from '@/types'
@@ -10,7 +9,7 @@ import { tripTimeline, type DayItem } from '@/lib/dayItems'
 import { DualTime } from './DualTime'
 import { DirectionsLink } from './DirectionsLink'
 import { directionsUrl } from '@/lib/maps'
-import { addDays, formatLongDate, formatShortDate, weekday } from '@/lib/tz'
+import { formatLongDate, formatShortDate, weekday } from '@/lib/tz'
 import { EventForm, FormModal } from './Bookings'
 
 interface Props {
@@ -20,16 +19,6 @@ interface Props {
   onSelectTrip: (id: string) => void
   onAdd: (tripId: string, body: Partial<Booking>) => Promise<void>
   seedMode: boolean
-}
-
-/** YYYY-MM-DD "today" in the given timezone. */
-function todayInTz(timeZone: string): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date())
 }
 
 function DayCard({ it, trip }: { it: DayItem; trip: Trip }) {
@@ -107,57 +96,11 @@ export function Itinerary({
 }: Props) {
   const trip = trips.find((t) => t.id === selectedTripId) ?? null
   const [quickAddDay, setQuickAddDay] = useState<string | null>(null)
-  const [activeDay, setActiveDay] = useState<string | null>(null)
-  const sectionRefs = useRef(new Map<string, HTMLElement>())
-  const jumpedOnLoad = useRef<string | null>(null)
 
   const days = useMemo(
     () => (trip ? tripTimeline(bookings, trip) : []),
     [bookings, trip],
   )
-
-  // All calendar days of the trip (the strip), even empty ones.
-  const stripDays = useMemo(() => {
-    if (!trip) return []
-    const out: string[] = []
-    let d = trip.start_date
-    while (d <= trip.end_date) {
-      out.push(d)
-      d = addDays(d, 1)
-    }
-    return out
-  }, [trip])
-
-  const defaultDay = useMemo(() => {
-    if (!trip) return null
-    const today = todayInTz(trip.destination_tz)
-    return today >= trip.start_date && today <= trip.end_date
-      ? today
-      : trip.start_date
-  }, [trip])
-
-  // Reset + jump to today (or day 1) when switching trips.
-  useEffect(() => {
-    setActiveDay(defaultDay)
-    jumpedOnLoad.current = null
-    sectionRefs.current.clear()
-  }, [selectedTripId, defaultDay])
-
-  useEffect(() => {
-    if (defaultDay && jumpedOnLoad.current !== selectedTripId) {
-      jumpedOnLoad.current = selectedTripId
-      // Let the list paint first.
-      const t = setTimeout(() => {
-        sectionRefs.current.get(defaultDay)?.scrollIntoView({ block: 'start' })
-      }, 50)
-      return () => clearTimeout(t)
-    }
-  }, [defaultDay, selectedTripId])
-
-  const jumpToDay = (day: string) => {
-    setActiveDay(day)
-    sectionRefs.current.get(day)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }
 
   return (
     <div>
@@ -191,48 +134,9 @@ export function Itinerary({
             {trip.destination_tz}
           </p>
 
-          {/* Day strip — tap to jump */}
-          <div className="sticky top-0 z-10 -mx-4 mb-4 overflow-x-auto bg-slate-100 px-4 py-2">
-            <div className="flex gap-1.5">
-              {stripDays.map((d) => {
-                const isActive = d === activeDay
-                const isToday = d === todayInTz(trip.destination_tz)
-                return (
-                  <button
-                    key={d}
-                    onClick={() => jumpToDay(d)}
-                    className={`flex shrink-0 flex-col items-center rounded-lg px-2.5 py-1.5 text-xs ${
-                      isActive
-                        ? 'bg-brand-600 font-semibold text-white'
-                        : 'bg-white text-slate-600 shadow-sm'
-                    }`}
-                  >
-                    <span className={isToday && !isActive ? 'font-semibold text-brand-600' : ''}>
-                      {weekday(d).slice(0, 3)}
-                    </span>
-                    <span>{Number(d.slice(8))}</span>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-          {days.length === 0 && (
-            <p className="text-sm text-slate-500">
-              No bookings yet — add some on the Bookings tab.
-            </p>
-          )}
-
           <div className="space-y-4">
             {days.map(({ day, items }) => (
-              <section
-                key={day}
-                ref={(el) => {
-                  if (el) sectionRefs.current.set(day, el)
-                  else sectionRefs.current.delete(day)
-                }}
-                className="scroll-mt-24"
-              >
+              <section key={day}>
                 <h3 className="mb-2 flex items-center justify-between text-sm font-semibold text-slate-700">
                   <span>
                     {weekday(day)}, {formatLongDate(day)}
